@@ -1,0 +1,64 @@
+name: CD
+
+on:
+  push:
+    branches: [ main ]
+
+  workflow_dispatch:
+
+jobs:
+  FTP-Deploy-Action:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+          
+      - name: Chceck current ip
+        run: wget -qO- https://ipinfo.io
+        
+      - name: Install OpenVPN
+        run: |
+          sudo apt-get update
+          sudo apt-get --assume-yes --no-install-recommends install openvpn
+          
+      - name: Setup VPN config
+        run: |
+          echo "${{ secrets.CA_CRT }}" > ca.crt
+          echo "${{ secrets.USER_CRT }}" > user.crt
+          echo "${{ secrets.USER_KEY }}" > user.key
+          echo "${{ secrets.SECRET_USERNAME_PASSWORD }}" > secret.txt
+          
+      - name: Connect VPN
+        run: sudo openvpn --config ".github/vpn/config.ovpn" --log "vpn.log" --daemon
+        
+      - name: Chceck current ip with vpn
+        run: wget -qO- https://ipinfo.io
+        
+      - name: Wait for a VPN connection
+        timeout-minutes: 2
+        run: until ping -c1 de.lazerpenguin.com; do sleep 2; done
+        
+      - name: Chceck current ip with vpn
+        run: wget -qO- https://ipinfo.io
+        
+#        - name: deploy file
+#          uses: wlixcc/SFTP-Deploy-Action@v1.2.2
+#          with:
+#           username: ${{ secrets.SFTP_USERNAME }}
+#           server: ${{ secrets.SFTP_SERVER }}
+#           ssh_private_key: ${{ secrets.SFTP_PASSWORD }} 
+#           local_path: './src/*'
+#           remote_path: '/knbimgo/test'
+#           args: '-o ConnectTimeout=30'
+
+      - name: Kill VPN connection
+        if: always()
+        run: |
+          sudo chmod 777 vpn.log
+          sudo killall openvpn    
+      - name: Upload VPN logs
+        uses: actions/upload-artifact@v2
+        if: always()
+        with:
+          name: VPN logs
+          path: vpn.log
